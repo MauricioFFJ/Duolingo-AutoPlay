@@ -2,7 +2,7 @@ name: Do a Duolingo lesson
 
 on:
   schedule:
-    - cron: '0 12 * * *'
+    - cron: '0 12 * * *'  # Executa todos os dias às 12h UTC (9h BRT)
   workflow_dispatch:
     inputs:
       lessons:
@@ -14,10 +14,24 @@ on:
 jobs:
   study:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v1
-      - run: node index.js
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar Bun
+        uses: oven-sh/setup-bun@v1
+
+      - name: Definir número de lições
+        run: |
+          if [ -z "${{ github.event.inputs.lessons }}" ]; then
+            echo "LESSONS=3" >> $GITHUB_ENV
+          else
+            echo "LESSONS=${{ github.event.inputs.lessons }}" >> $GITHUB_ENV
+          fi
+
+      - name: Executar script Duolingo
+        run: node index.js
         env:
           DUOLINGO_JWT: ${{ secrets.DUOLINGO_JWT }}
-          LESSONS: ${{ inputs.lessons }}
+          LESSONS: ${{ env.LESSONS }}
