@@ -1,41 +1,81 @@
-name: Duolingo Daily Lessons
+name: Estudo Diário Variável
 
 on:
   schedule:
-    - cron: '0 12 * * *'   # 09:00 BRT
-    - cron: '0 15 * * *'   # 12:00 BRT
-    - cron: '0 18 * * *'   # 15:00 BRT
-    - cron: '0 21 * * *'   # 18:00 BRT
-    - cron: '0 0 * * *'    # 21:00 BRT
+    - cron: '0 9 * * *'  # Executa uma vez por dia (às 6h da manhã no Brasil)
   workflow_dispatch:
-    inputs:
-      lessons:
-        default: 3
-        description: 'Number of lessons to be completed'
-        required: false
-        type: number
 
 jobs:
-  study:
+  preparar-estudo:
     runs-on: ubuntu-latest
+    outputs:
+      total_lessons: ${{ steps.sortear-lessons.outputs.total_lessons }}
+    steps:
+      - name: Sortear total de lições do dia
+        id: sortear-lessons
+        run: |
+          TOTAL_LESSONS=$(( (RANDOM % 22) + 7 ))  # 7 a 28 lições → 70 a 280 XP
+          echo "Total de lições do dia: $TOTAL_LESSONS"
+          echo "total_lessons=$TOTAL_LESSONS" >> $GITHUB_OUTPUT
 
+      - name: Salvar total em arquivo
+        run: |
+          echo "${{ steps.sortear-lessons.outputs.total_lessons }}" > total_lessons.txt
+          echo "0" > lições_consumidas.txt
+          git config --global user.name "duobot"
+          git config --global user.email "duobot@example.com"
+          git add total_lessons.txt lições_consumidas.txt
+          git commit -m "Total de lições do dia definido"
+          git push
+
+  executar-estudo:
+    needs: preparar-estudo
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        execucao: [1, 2, 3, 4]  # Até 4 execuções por dia
     steps:
       - name: Checkout do repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Instalar Bun
-        uses: oven-sh/setup-bun@v1
-
-      - name: Definir número de lições
+      - name: Sortear atraso aleatório
         run: |
-          if [ -z "${{ github.event.inputs.lessons }}" ]; then
-            echo "LESSONS=3" >> $GITHUB_ENV
-          else
-            echo "LESSONS=${{ github.event.inputs.lessons }}" >> $GITHUB_ENV
+          DELAY=$((RANDOM % 180))  # Até 3 horas de atraso
+          echo "Aguardando $DELAY minutos..."
+          sleep "${DELAY}m"
+
+      - name: Ler total de lições do dia
+        run: |
+          TOTAL=$(cat total_lessons.txt)
+          echo "TOTAL_LESSONS=$TOTAL" >> $GITHUB_ENV
+
+      - name: Calcular lições desta execução
+        run: |
+          CONSUMIDAS=$(cat lições_consumidas.txt 2>/dev/null || echo 0)
+          RESTANTES=$((TOTAL_LESSONS - CONSUMIDAS))
+
+          if [ "$RESTANTES" -le 0 ]; then
+            echo "Nada a estudar hoje 🎉"
+            exit 0
           fi
 
-      - name: Executar script Duolingo
-        run: node index.js
-        env:
-          DUOLINGO_JWT: ${{ secrets.DUOLINGO_JWT }}
-          LESSONS: ${{ env.LESSONS }}
+          # Sorteia entre 2 e 8 lições, sem ultrapassar o restante
+          MAX=$(( RESTANTES < 8 ? RESTANTES : 8 ))
+          LIÇÕES=$(( (RANDOM % (MAX - 1 + 1)) + 2 ))
+          echo "LIÇÕES=$LIÇÕES" >> $GITHUB_ENV
+          echo "Lições desta execução: $LIÇÕES"
+
+      - name: Atualizar progresso
+        run: |
+          XP=$(($LIÇÕES * 10))
+          echo "$(date -u) - $XP XP ganhos (${LIÇÕES} lições)" >> xp-log.txt
+
+          CONSUMIDAS=$(cat lições_consumidas.txt 2>/dev/null || echo 0)
+          NOVO_TOTAL=$((CONSUMIDAS + LIÇÕES))
+          echo "$NOVO_TOTAL" > lições_consumidas.txt
+
+          git config --global user.name "duobot"
+          git config --global user.email "duobot@example.com"
+          git add xp-log.txt lições_consumidas.txt
+          git commit -m "Estudo registrado: $XP XP ganhos"
+          git push
