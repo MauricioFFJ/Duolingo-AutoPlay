@@ -1,10 +1,12 @@
 name: Do a Duolingo lesson
 
 on:
+  schedule:
+    - cron: '0 12 * * *'
   workflow_dispatch:
     inputs:
       lessons:
-        default: 1
+        default: 3
         description: 'Number of lessons to be completed'
         required: false
         type: number
