@@ -1,81 +1,138 @@
 name: Estudo Diário Variável
 
+# Permite que o workflow faça commit/push
+permissions:
+  contents: write
+
 on:
   schedule:
-    - cron: '0 9 * * *'  # Executa uma vez por dia (às 6h da manhã no Brasil)
+    # 4 execuções por dia (UTC) → 09h, 13h, 17h e 20h BRT
+    - cron: '0 12 * * *'
+    - cron: '0 16 * * *'
+    - cron: '0 20 * * *'
+    - cron: '0 23 * * *'
   workflow_dispatch:
+    inputs:
+      lessons:
+        description: 'Lições desta execução (opcional). Se não informar, escolhe aleatório.'
+        required: false
+        type: number
 
 jobs:
-  preparar-estudo:
+  run:
     runs-on: ubuntu-latest
-    outputs:
-      total_lessons: ${{ steps.sortear-lessons.outputs.total_lessons }}
-    steps:
-      - name: Sortear total de lições do dia
-        id: sortear-lessons
-        run: |
-          TOTAL_LESSONS=$(( (RANDOM % 22) + 7 ))  # 7 a 28 lições → 70 a 280 XP
-          echo "Total de lições do dia: $TOTAL_LESSONS"
-          echo "total_lessons=$TOTAL_LESSONS" >> $GITHUB_OUTPUT
 
-      - name: Salvar total em arquivo
-        run: |
-          echo "${{ steps.sortear-lessons.outputs.total_lessons }}" > total_lessons.txt
-          echo "0" > lições_consumidas.txt
-          git config --global user.name "duobot"
-          git config --global user.email "duobot@example.com"
-          git add total_lessons.txt lições_consumidas.txt
-          git commit -m "Total de lições do dia definido"
-          git push
-
-  executar-estudo:
-    needs: preparar-estudo
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        execucao: [1, 2, 3, 4]  # Até 4 execuções por dia
     steps:
       - name: Checkout do repositório
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Sortear atraso aleatório
+      - name: Atraso aleatório para variar horário
+        shell: bash
         run: |
-          DELAY=$((RANDOM % 180))  # Até 3 horas de atraso
-          echo "Aguardando $DELAY minutos..."
-          sleep "${DELAY}m"
+          # 0–90 min de jitter por execução
+          JITTER=$((RANDOM % 91))
+          echo "Aguardando $JITTER minutos para variar o horário..."
+          sleep "${JITTER}m"
 
-      - name: Ler total de lições do dia
+      - name: Inicializar ou carregar plano do dia
+        id: plan
+        shell: bash
         run: |
-          TOTAL=$(cat total_lessons.txt)
-          echo "TOTAL_LESSONS=$TOTAL" >> $GITHUB_ENV
+          mkdir -p .duo
+          TODAY=$(date -u +%F)
+          SAVED_DATE=$(cat .duo/total_date.txt 2>/dev/null || echo "")
 
-      - name: Calcular lições desta execução
+          if [ "$TODAY" != "$SAVED_DATE" ]; then
+            # 7–28 lições → 70–280 XP
+            TOTAL=$(( (RANDOM % 22) + 7 ))
+            echo "$TODAY" > .duo/total_date.txt
+            echo "$TOTAL" > .duo/total_lessons.txt
+            echo "0" > .duo/consumed_lessons.txt
+            echo "Novo dia $TODAY. Total de lições definidas: $TOTAL"
+          else
+            echo "Mesmo dia ($TODAY). Continuando plano existente."
+          fi
+
+          TOTAL=$(cat .duo/total_lessons.txt)
+          CONSUMED=$(cat .duo/consumed_lessons.txt)
+          REMAINING=$((TOTAL - CONSUMED))
+
+          echo "TOTAL=$TOTAL" >> $GITHUB_OUTPUT
+          echo "CONSUMED=$CONSUMED" >> $GITHUB_OUTPUT
+          echo "REMAINING=$REMAINING" >> $GITHUB_OUTPUT
+
+      - name: Decidir lições desta execução
+        id: decide
+        shell: bash
         run: |
-          CONSUMIDAS=$(cat lições_consumidas.txt 2>/dev/null || echo 0)
-          RESTANTES=$((TOTAL_LESSONS - CONSUMIDAS))
+          REMAINING=${{ steps.plan.outputs.REMAINING }}
 
-          if [ "$RESTANTES" -le 0 ]; then
-            echo "Nada a estudar hoje 🎉"
+          if [ "$REMAINING" -le 0 ]; then
+            echo "LESSONS=0" >> $GITHUB_OUTPUT
+            echo "Nada a estudar hoje. Total diário já atingido."
             exit 0
           fi
 
-          # Sorteia entre 2 e 8 lições, sem ultrapassar o restante
-          MAX=$(( RESTANTES < 8 ? RESTANTES : 8 ))
-          LIÇÕES=$(( (RANDOM % (MAX - 1 + 1)) + 2 ))
-          echo "LIÇÕES=$LIÇÕES" >> $GITHUB_ENV
-          echo "Lições desta execução: $LIÇÕES"
+          INPUT="${{ github.event.inputs.lessons }}"
+          if [ -n "$INPUT" ]; then
+            # Usa input, respeitando o restante
+            if [ "$INPUT" -gt "$REMAINING" ]; then
+              LESSONS=$REMAINING
+            else
+              LESSONS=$INPUT
+            fi
+          else
+            # Aleatório 2..8, limitado ao restante; se restar <2, usa o restante
+            if [ "$REMAINING" -lt 2 ]; then
+              LESSONS=$REMAINING
+            else
+              MAX=$(( REMAINING < 8 ? REMAINING : 8 ))
+              RANGE=$(( MAX - 2 + 1 ))
+              LESSONS=$(( (RANDOM % RANGE) + 2 ))
+            fi
+          fi
 
-      - name: Atualizar progresso
+          echo "LESSONS=$LESSONS" >> $GITHUB_OUTPUT
+          echo "LESSONS=$LESSONS" >> $GITHUB_ENV
+          echo "Lições desta execução: $LESSONS (restantes antes: $REMAINING)"
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Executar estudo no Duolingo
+        if: ${{ steps.decide.outputs.LESSONS != '0' }}
+        run: node index.js
+        env:
+          DUOLINGO_JWT: ${{ secrets.DUOLINGO_JWT }}
+          LESSONS: ${{ env.LESSONS }}
+
+      - name: Atualizar contadores e log
+        if: ${{ steps.decide.outputs.LESSONS != '0' }}
+        shell: bash
         run: |
-          XP=$(($LIÇÕES * 10))
-          echo "$(date -u) - $XP XP ganhos (${LIÇÕES} lições)" >> xp-log.txt
+          mkdir -p .duo
+          CONSUMED=$(cat .duo/consumed_lessons.txt)
+          NEW=$((CONSUMED + LESSONS))
+          echo "$NEW" > .duo/consumed_lessons.txt
 
-          CONSUMIDAS=$(cat lições_consumidas.txt 2>/dev/null || echo 0)
-          NOVO_TOTAL=$((CONSUMIDAS + LIÇÕES))
-          echo "$NOVO_TOTAL" > lições_consumidas.txt
+          XP=$((LESSONS * 10))
+          echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - ${XP} XP ganhos (${LESSONS} lições)" >> .duo/xp-log.txt
 
-          git config --global user.name "duobot"
-          git config --global user.email "duobot@example.com"
-          git add xp-log.txt lições_consumidas.txt
-          git commit -m "Estudo registrado: $XP XP ganhos"
-          git push
+      - name: Commit e push das atualizações
+        if: ${{ steps.decide.outputs.LESSONS != '0' }}
+        shell: bash
+        run: |
+          git config user.name "duobot"
+          git config user.email "duobot@example.com"
+          # Puxa mudanças remotas antes de commitar para evitar conflitos ocasionais
+          git pull --rebase || true
+
+          if ! git diff --quiet; then
+            git add .duo/*
+            git commit -m "Execução: +$((LESSONS*10)) XP (${LESSONS} lições)"
+            git push
+          else
+            echo "Sem mudanças para commitar."
+          fi
