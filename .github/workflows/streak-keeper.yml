@@ -1,4 +1,4 @@
-name: Keep my Duolingo streak
+name: Streak Keeper
 
 on:
   schedule:
