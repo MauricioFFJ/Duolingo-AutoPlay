@@ -1,6 +1,5 @@
 name: Automatic Daily Study
 
-# Permite que o workflow faça commit/push
 permissions:
   contents: write
 
@@ -18,6 +17,11 @@ on:
         required: false
         type: number
 
+env:
+  # Configuração fácil: cada lição vale 10 XP
+  MIN_LESSONS: 10    # 100 XP
+  MAX_LESSONS: 40   # 400 XP
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -29,7 +33,6 @@ jobs:
       - name: Atraso aleatório para variar horário
         shell: bash
         run: |
-          # 0–90 min de jitter por execução
           JITTER=$((RANDOM % 91))
           echo "Aguardando $JITTER minutos para variar o horário..."
           sleep "${JITTER}m"
@@ -43,8 +46,8 @@ jobs:
           SAVED_DATE=$(cat .duo/total_date.txt 2>/dev/null || echo "")
 
           if [ "$TODAY" != "$SAVED_DATE" ]; then
-            # 7–28 lições → 70–280 XP
-            TOTAL=$(( (RANDOM % 22) + 7 ))
+            RANGE=$(( MAX_LESSONS - MIN_LESSONS + 1 ))
+            TOTAL=$(( (RANDOM % RANGE) + MIN_LESSONS ))
             echo "$TODAY" > .duo/total_date.txt
             echo "$TOTAL" > .duo/total_lessons.txt
             echo "0" > .duo/consumed_lessons.txt
@@ -75,14 +78,12 @@ jobs:
 
           INPUT="${{ github.event.inputs.lessons }}"
           if [ -n "$INPUT" ]; then
-            # Usa input, respeitando o restante
             if [ "$INPUT" -gt "$REMAINING" ]; then
               LESSONS=$REMAINING
             else
               LESSONS=$INPUT
             fi
           else
-            # Aleatório 2..8, limitado ao restante; se restar <2, usa o restante
             if [ "$REMAINING" -lt 2 ]; then
               LESSONS=$REMAINING
             else
@@ -126,7 +127,6 @@ jobs:
         run: |
           git config user.name "duobot"
           git config user.email "duobot@example.com"
-          # Puxa mudanças remotas antes de commitar para evitar conflitos ocasionais
           git pull --rebase || true
 
           if ! git diff --quiet; then
