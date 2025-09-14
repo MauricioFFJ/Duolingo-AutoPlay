@@ -28,9 +28,13 @@ document.cookie
 
 This project uses GitHub Actions scheduled workflow to keep your streak alive. The workflow can be viewed [here](.github/workflows/streak-keeper.yml).
 
-### 📚 Study
+### 📚 Study (Do a Duolingo lesson)
 
-This repository can also "study" lessons for you. This will give you XP so you won't get demoted never again! This workflow uses [workflow_dispatch](https://docs.github.com/actions/using-workflows/events-that-trigger-workflows#workflow_dispatch) to trigger the study session. You can choose the number of lessons to be done. The workflow can be viewed [here](.github/workflows/study.yml).
+This repository can also "study" lessons for you. This will earn you XP manually! This workflow uses [workflow_dispatch](https://docs.github.com/actions/using-workflows/events-that-trigger-workflows#workflow_dispatch) to trigger the study session. You can choose the number of lessons to run. The workflow can be viewed [here](.github/workflows/study-manual.yml).
+
+### 🤖 Automatic Daily Study
+
+This repository works like an XP miner. It will study for you daily (without affecting your progression) and grant you random XP to prevent demotion. The workflow can be viewed [here](.github/workflows/study.yml).
 
 ## Caveats
 
