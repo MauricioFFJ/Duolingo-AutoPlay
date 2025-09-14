@@ -1,4 +1,4 @@
-name: Estudo Diário Variável
+name: Automatic Daily Study
 
 # Permite que o workflow faça commit/push
 permissions:
