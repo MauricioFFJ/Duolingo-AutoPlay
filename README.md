@@ -49,7 +49,7 @@ You can run this script outside GitHub if you want to. You can have an `.env` fi
 node --env-file=.env index.js
 ```
 
-> Node v20.6.0 or later is needed to use the `--env-file` flag
+> Node v20.6.0 or later is needed to use the `--env-file` flag.
 
 You can also load the env in the terminal like so:
 
